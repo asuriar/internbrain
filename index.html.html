@@ -308,8 +308,15 @@
   <div class="view" id="view-data">
     <div class="cat-header">
       <button class="back-btn" onclick="showView('view-home')">←</button>
-      <div class="cat-title"><span class="em">⚙️</span><h2>Backup & data</h2></div>
+      <div class="cat-title"><span class="em">⚙️</span><h2>Settings & data</h2></div>
     </div>
+
+    <div class="data-panel">
+      <p><b>Manage categories</b> — add, rename, reorder, or remove the tiles on your home screen. No GitHub needed for any of this.</p>
+      <div id="categoryManagerList"></div>
+      <button class="add-entry-btn" id="addCategoryBtn" style="margin-top:10px;">+ Add category</button>
+    </div>
+
     <div class="data-panel">
       <p>Everything you type is saved only on this device, in this browser. It is <b>not</b> backed up anywhere else — clear your browser data and it's gone. Export a backup regularly, especially before you get a new phone.</p>
       <div class="data-row">
@@ -334,7 +341,7 @@
     <button class="nav-btn active" data-nav="view-home" onclick="showView('view-home')"><span class="ni">🏠</span>Home</button>
     <button class="nav-btn" data-nav="view-calc" onclick="goCalc()"><span class="ni">🧮</span>Calc</button>
     <button class="nav-btn" data-nav="view-favs" onclick="showView('view-favs')"><span class="ni">⭐</span>Favs</button>
-    <button class="nav-btn" data-nav="view-data" onclick="showView('view-data')"><span class="ni">⚙️</span>Data</button>
+    <button class="nav-btn" data-nav="view-data" onclick="goData()"><span class="ni">⚙️</span>Data</button>
   </div>
 </div>
 
@@ -477,6 +484,169 @@ function showView(id){
   window.scrollTo(0,0);
 }
 function goCalc(){ renderCalculators(); showView('view-calc'); }
+function goData(){ renderCategoryManager(); showView('view-data'); }
+
+/* ============ CATEGORY MANAGER ============ */
+const CATEGORY_EMOJI_SUGGESTIONS = ['🚨','📈','🫀','⚡','💊','🩸','🔧','📝','🩻','🔗','🏥','📞','🧪','🫁','🦴','🧠','👶','🌡️','📋','🛌'];
+
+function renderCategoryManager(){
+  const wrap = document.getElementById('categoryManagerList');
+  wrap.innerHTML = '';
+  DATA.order.forEach((id, idx)=>{
+    const c = DATA.categories[id];
+    if(!c) return;
+    const row = document.createElement('div');
+    row.className = 'entry';
+    row.style.marginBottom = '8px';
+
+    const head = document.createElement('div');
+    head.className = 'entry-head';
+    const h3 = document.createElement('h3');
+    h3.textContent = `${c.emoji} ${c.title}`;
+    head.appendChild(h3);
+    row.appendChild(head);
+
+    const meta = document.createElement('div');
+    meta.className = 'entry-body';
+    meta.style.marginBottom = '2px';
+    meta.textContent = c.entries.length + (c.entries.length===1 ? ' entry' : ' entries');
+    row.appendChild(meta);
+
+    const foot = document.createElement('div');
+    foot.className = 'entry-foot';
+    foot.style.flexWrap = 'wrap';
+
+    const upBtn = document.createElement('button');
+    upBtn.className = 'mini-btn';
+    upBtn.textContent = '↑';
+    upBtn.disabled = idx === 0;
+    upBtn.style.opacity = idx === 0 ? 0.35 : 1;
+    upBtn.onclick = ()=> moveCategory(id, -1);
+
+    const downBtn = document.createElement('button');
+    downBtn.className = 'mini-btn';
+    downBtn.textContent = '↓';
+    downBtn.disabled = idx === DATA.order.length - 1;
+    downBtn.style.opacity = idx === DATA.order.length - 1 ? 0.35 : 1;
+    downBtn.onclick = ()=> moveCategory(id, 1);
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'mini-btn';
+    editBtn.textContent = 'Rename';
+    editBtn.onclick = ()=> enterCategoryEditMode(row, id);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'mini-btn danger';
+    delBtn.textContent = 'Delete';
+    delBtn.onclick = ()=> deleteCategory(id);
+
+    foot.appendChild(upBtn);
+    foot.appendChild(downBtn);
+    foot.appendChild(editBtn);
+    foot.appendChild(delBtn);
+    row.appendChild(foot);
+
+    wrap.appendChild(row);
+  });
+}
+
+function moveCategory(id, direction){
+  const i = DATA.order.indexOf(id);
+  const j = i + direction;
+  if(j < 0 || j >= DATA.order.length) return;
+  [DATA.order[i], DATA.order[j]] = [DATA.order[j], DATA.order[i]];
+  saveData();
+  renderCategoryManager();
+  renderHome();
+}
+
+function enterCategoryEditMode(row, id){
+  const c = DATA.categories[id];
+  row.innerHTML = '';
+  const emojiInput = document.createElement('input');
+  emojiInput.className = 'title-edit';
+  emojiInput.style.width = '70px';
+  emojiInput.style.display = 'inline-block';
+  emojiInput.style.marginRight = '8px';
+  emojiInput.value = c.emoji;
+  emojiInput.maxLength = 4;
+  const titleInput = document.createElement('input');
+  titleInput.className = 'title-edit';
+  titleInput.style.width = 'calc(100% - 78px)';
+  titleInput.style.display = 'inline-block';
+  titleInput.value = c.title;
+  titleInput.placeholder = 'Category name';
+
+  const hintInput = document.createElement('input');
+  hintInput.className = 'title-edit';
+  hintInput.style.fontWeight = '400';
+  hintInput.style.fontSize = '12.5px';
+  hintInput.value = c.hint || '';
+  hintInput.placeholder = 'Short subtitle shown on the home tile (optional)';
+
+  const urgentLabel = document.createElement('label');
+  urgentLabel.style.cssText = 'display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text-dim); margin:8px 0;';
+  const urgentCheck = document.createElement('input');
+  urgentCheck.type = 'checkbox';
+  urgentCheck.checked = !!c.urgent;
+  urgentLabel.appendChild(urgentCheck);
+  urgentLabel.appendChild(document.createTextNode('Highlight as urgent (amber tile, like Crit care)'));
+
+  const foot = document.createElement('div');
+  foot.className = 'entry-foot';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'mini-btn';
+  saveBtn.textContent = 'Save';
+  saveBtn.onclick = ()=>{
+    c.emoji = emojiInput.value.trim() || '📌';
+    c.title = titleInput.value.trim() || c.title;
+    c.hint = hintInput.value.trim();
+    c.urgent = urgentCheck.checked;
+    saveData();
+    renderCategoryManager();
+    renderHome();
+  };
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'mini-btn';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.onclick = ()=> renderCategoryManager();
+  foot.appendChild(saveBtn);
+  foot.appendChild(cancelBtn);
+
+  row.appendChild(emojiInput);
+  row.appendChild(titleInput);
+  row.appendChild(hintInput);
+  row.appendChild(urgentLabel);
+  row.appendChild(foot);
+  titleInput.focus();
+}
+
+function deleteCategory(id){
+  const c = DATA.categories[id];
+  const entryCount = c.entries.length;
+  const msg = entryCount > 0
+    ? `Delete "${c.title}"? This also deletes its ${entryCount} ${entryCount===1?'entry':'entries'}. This cannot be undone.`
+    : `Delete "${c.title}"?`;
+  if(!confirm(msg)) return;
+  delete DATA.categories[id];
+  DATA.order = DATA.order.filter(x=>x!==id);
+  saveData();
+  renderCategoryManager();
+  renderHome();
+}
+
+document.getElementById('addCategoryBtn').onclick = ()=>{
+  const title = prompt('New category name (e.g. "Paeds", "Toxicology"):');
+  if(!title || !title.trim()) return;
+  const emoji = prompt('Pick an emoji for it (e.g. 👶, ☠️, 🦠):', CATEGORY_EMOJI_SUGGESTIONS[Math.floor(Math.random()*CATEGORY_EMOJI_SUGGESTIONS.length)]) || '📌';
+  const id = 'cat_' + uid();
+  DATA.categories[id] = { id, emoji: emoji.trim() || '📌', title: title.trim(), hint:'', urgent:false, entries:[] };
+  DATA.order.push(id);
+  saveData();
+  renderCategoryManager();
+  renderHome();
+  openCategory(id);
+};
 
 /* ============ HOME GRID ============ */
 function renderHome(){
