@@ -153,8 +153,15 @@
   .entry-head h3 { font-size:14.5px; font-weight:700; margin:0; flex:1; letter-spacing:-0.005em; }
   .star-btn { background:none; border:none; font-size:17px; cursor:pointer; padding:2px 4px; color:var(--text-faint); flex-shrink:0; }
   .star-btn.active { color:var(--star); }
-  .entry-body { font-size:13.5px; line-height:1.6; color:var(--text-dim); white-space:pre-wrap; word-break:break-word; }
+  .entry-body { font-size:13.5px; line-height:1.65; color:var(--text-dim); word-break:break-word; }
   .entry-body:empty::before { content:"Tap edit to add your notes."; color:var(--text-faint); font-style:italic; }
+  .entry-body p { margin:0 0 8px; white-space:pre-wrap; }
+  .entry-body p:last-child { margin-bottom:0; }
+  .entry-body ul, .entry-body ol { margin:0 0 8px; padding-left:20px; }
+  .entry-body li { margin-bottom:3px; }
+  .entry-body strong { color:var(--text); font-weight:700; }
+  .entry-body a { color:var(--accent); text-decoration:underline; text-decoration-color:var(--accent-dim); word-break:break-all; }
+  .entry-body img { max-width:100%; border-radius:8px; display:block; margin:6px 0; border:1px solid var(--border-soft); }
   .entry-foot { display:flex; gap:8px; margin-top:10px; }
   .mini-btn {
     font-size:12px; font-weight:600; padding:6px 11px; border-radius:8px; border:1px solid var(--border);
@@ -166,6 +173,16 @@
     color:var(--text); font-family:inherit; font-size:13.5px; padding:9px 10px; margin-top:6px; resize:vertical;
   }
   .entry input.title-edit { font-size:14.5px; font-weight:700; margin-top:0; margin-bottom:6px; }
+  .md-toolbar { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+  .md-toolbar button {
+    font-size:12.5px; font-weight:600; padding:6px 10px; border-radius:7px; border:1px solid var(--border);
+    background:var(--bg-raised); color:var(--text-dim); cursor:pointer; line-height:1;
+  }
+  .md-toolbar button:active { background:var(--border-soft); }
+  .md-hint { font-size:10.5px; color:var(--text-faint); margin-top:4px; line-height:1.5; }
+  .md-preview-label { font-size:10.5px; font-weight:700; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.05em; margin:10px 0 4px; }
+  .md-preview { border:1px dashed var(--border); border-radius:8px; padding:10px 11px; min-height:24px; }
+  .md-preview:empty::before { content:"Preview appears here as you type…"; color:var(--text-faint); font-style:italic; font-size:12.5px; }
 
   .add-entry-btn {
     width:100%; padding:13px; border-radius:var(--radius); border:1.5px dashed var(--border);
@@ -713,7 +730,7 @@ function renderEntry(catId, entry, opts){
 
   const body = document.createElement('div');
   body.className = 'entry-body';
-  body.textContent = entry.body || '';
+  if(entry.body && entry.body.trim()) body.innerHTML = markdownToHtml(entry.body);
 
   const foot = document.createElement('div');
   foot.className = 'entry-foot';
@@ -751,10 +768,103 @@ function enterEditMode(div, catId, entry){
   titleInput.className = 'title-edit';
   titleInput.value = entry.title || '';
   titleInput.placeholder = 'Title';
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'md-toolbar';
+
   const bodyArea = document.createElement('textarea');
-  bodyArea.rows = 5;
+  bodyArea.rows = 6;
   bodyArea.value = entry.body || '';
-  bodyArea.placeholder = 'Notes, dosing, links… whatever you need at 3am.';
+  bodyArea.placeholder = 'Notes, dosing, links… whatever you need at 3am.\n\n- start a line with a dash for a bullet\n**bold text** like this';
+
+  const preview = document.createElement('div');
+  preview.className = 'md-preview';
+
+  const updatePreview = ()=>{
+    preview.innerHTML = bodyArea.value.trim() ? markdownToHtml(bodyArea.value) : '';
+  };
+  bodyArea.addEventListener('input', updatePreview);
+
+  function makeToolBtn(label, title, onClick){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.title = title;
+    b.onclick = onClick;
+    return b;
+  }
+
+  function wrapSelection(before, after){
+    const start = bodyArea.selectionStart, end = bodyArea.selectionEnd;
+    const val = bodyArea.value;
+    const selected = val.slice(start, end) || 'text';
+    bodyArea.value = val.slice(0, start) + before + selected + after + val.slice(end);
+    bodyArea.focus();
+    bodyArea.selectionStart = start + before.length;
+    bodyArea.selectionEnd = start + before.length + selected.length;
+    updatePreview();
+  }
+
+  function insertAtCursor(text){
+    const start = bodyArea.selectionStart, end = bodyArea.selectionEnd;
+    const val = bodyArea.value;
+    const needsNewlineBefore = start > 0 && val[start-1] !== '\n';
+    const insert = (needsNewlineBefore ? '\n' : '') + text;
+    bodyArea.value = val.slice(0, start) + insert + val.slice(end);
+    bodyArea.focus();
+    const pos = start + insert.length;
+    bodyArea.selectionStart = bodyArea.selectionEnd = pos;
+    updatePreview();
+  }
+
+  const boldBtn = makeToolBtn('B', 'Bold', ()=> wrapSelection('**','**'));
+  boldBtn.style.fontWeight = '800';
+  const italicBtn = makeToolBtn('i', 'Italic', ()=> wrapSelection('*','*'));
+  italicBtn.style.fontStyle = 'italic';
+  const bulletBtn = makeToolBtn('• List', 'Bullet point', ()=> insertAtCursor('- '));
+  const linkBtn = makeToolBtn('🔗 Link', 'Insert link', ()=>{
+    const url = prompt('Paste the URL:');
+    if(!url) return;
+    const text = prompt('Link text to display:', 'link') || url;
+    insertAtCursor(`[${text}](${url})`);
+  });
+  const imgBtn = makeToolBtn('🖼️ Image', 'Insert image', ()=> imageFileInput.click());
+
+  const imageFileInput = document.createElement('input');
+  imageFileInput.type = 'file';
+  imageFileInput.accept = 'image/*';
+  imageFileInput.style.display = 'none';
+  imageFileInput.onchange = async ()=>{
+    const file = imageFileInput.files[0];
+    imageFileInput.value = '';
+    if(!file) return;
+    imgBtn.disabled = true;
+    const originalLabel = imgBtn.textContent;
+    imgBtn.textContent = 'Adding…';
+    try {
+      const dataUrl = await compressImageToDataUrl(file, 900, 0.72);
+      insertAtCursor(`![${file.name.replace(/[\[\]]/g,'')}](${dataUrl})`);
+    } catch(e){
+      alert('Could not add that image — try a smaller file or a different format.');
+    }
+    imgBtn.disabled = false;
+    imgBtn.textContent = originalLabel;
+  };
+
+  toolbar.appendChild(boldBtn);
+  toolbar.appendChild(italicBtn);
+  toolbar.appendChild(bulletBtn);
+  toolbar.appendChild(linkBtn);
+  toolbar.appendChild(imgBtn);
+
+  const hint = document.createElement('div');
+  hint.className = 'md-hint';
+  hint.textContent = 'Images are stored inside your notes on this device — they\'re auto-shrunk, but a lot of large images will use up your browser\'s storage faster. Prefer a link when the image lives online already.';
+
+  const previewLabel = document.createElement('div');
+  previewLabel.className = 'md-preview-label';
+  previewLabel.textContent = 'Preview';
+
   const foot = document.createElement('div');
   foot.className = 'entry-foot';
   const saveBtn = document.createElement('button');
@@ -772,10 +882,95 @@ function enterEditMode(div, catId, entry){
   cancelBtn.onclick = ()=> refreshCurrentView();
   foot.appendChild(saveBtn);
   foot.appendChild(cancelBtn);
+
   div.appendChild(titleInput);
+  div.appendChild(toolbar);
   div.appendChild(bodyArea);
+  div.appendChild(imageFileInput);
+  div.appendChild(hint);
+  div.appendChild(previewLabel);
+  div.appendChild(preview);
   div.appendChild(foot);
   titleInput.focus();
+  updatePreview();
+}
+
+/* Resize + re-encode an image file client-side so it doesn't blow out localStorage. */
+function compressImageToDataUrl(file, maxDim, quality){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onerror = ()=> reject(new Error('read failed'));
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onerror = ()=> reject(new Error('decode failed'));
+      img.onload = ()=>{
+        let { width, height } = img;
+        if(width > maxDim || height > maxDim){
+          if(width >= height){ height = Math.round(height * (maxDim/width)); width = maxDim; }
+          else { width = Math.round(width * (maxDim/height)); height = maxDim; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ============ MARKDOWN-LITE RENDERER ============
+   Supports: **bold**, *italic*, - bullets, [text](url) links, ![alt](url) images.
+   Escapes raw HTML first, so pasted text can never inject scripts/markup. */
+function markdownToHtml(raw){
+  const esc = escapeHtml(raw);
+  const lines = esc.split('\n');
+  let html = '';
+  let inList = false;
+  let paraBuf = [];
+
+  function flushPara(){
+    if(paraBuf.length){
+      html += '<p>' + paraBuf.join('\n') + '</p>';
+      paraBuf = [];
+    }
+  }
+  function closeList(){
+    if(inList){ html += '</ul>'; inList = false; }
+  }
+
+  lines.forEach(line=>{
+    const bulletMatch = /^\s*[-*]\s+(.*)$/.exec(line);
+    if(bulletMatch){
+      flushPara();
+      if(!inList){ html += '<ul>'; inList = true; }
+      html += '<li>' + inlineMd(bulletMatch[1]) + '</li>';
+      return;
+    }
+    closeList();
+    if(line.trim() === ''){
+      flushPara();
+    } else {
+      paraBuf.push(inlineMd(line));
+    }
+  });
+  closeList();
+  flushPara();
+  return html;
+}
+
+function inlineMd(text){
+  // images first (so ![]() isn't mistaken for a link)
+  text = text.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');
+  // links
+  text = text.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  // bold
+  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // italic
+  text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  return text;
 }
 
 document.getElementById('addEntryBtn').onclick = ()=>{
