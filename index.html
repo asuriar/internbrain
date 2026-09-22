@@ -14,13 +14,13 @@
 <style>
   :root {
     --bg: #12171B;
-    --bg-raised: #1A2126;
-    --bg-tile: #1D262B;
-    --border: #2A3439;
-    --border-soft: #232C31;
+    --bg-raised: #262F35;
+    --bg-tile: #262F35;
+    --border: #364045;
+    --border-soft: #2E383E;
     --text: #EDF1F2;
-    --text-dim: #9CA9AE;
-    --text-faint: #6B7A80;
+    --text-dim: #AEBBC0;
+    --text-faint: #8B99A0;
     --accent: #3DDBC4;
     --accent-dim: #276F63;
     --accent-bg: rgba(61,219,196,0.10);
@@ -130,8 +130,6 @@
   .tile .em { font-size:24px; line-height:1; }
   .tile .tt { font-size:14.5px; font-weight:700; letter-spacing:-0.01em; }
   .tile .ct { font-size:11px; color:var(--text-faint); font-weight:500; margin-top:2px; }
-  .tile.urgent { background:var(--warn-bg); border-color:rgba(232,163,61,0.35); }
-  .tile.urgent .tt { color:var(--warn); }
   .tile.wide { grid-column:1 / -1; flex-direction:row; align-items:center; min-height:auto; padding:14px 16px; }
   .tile.wide .em { font-size:20px; }
   .tile.wide .txt { flex:1; }
@@ -268,8 +266,6 @@
 
   <!-- HOME VIEW -->
   <div class="view active" id="view-home">
-    <div class="disclaimer"><b>Personal reference only.</b> Verify everything against the official GVH / ETG source before using it in patient care. Nothing here is clinical advice.</div>
-
     <div class="section-label">Categories</div>
     <div class="grid" id="homeGrid"></div>
 
@@ -653,14 +649,6 @@ function enterCategoryEditMode(row, id){
   hintInput.value = c.hint || '';
   hintInput.placeholder = 'Short subtitle shown on the home tile (optional)';
 
-  const urgentLabel = document.createElement('label');
-  urgentLabel.style.cssText = 'display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text-dim); margin:8px 0;';
-  const urgentCheck = document.createElement('input');
-  urgentCheck.type = 'checkbox';
-  urgentCheck.checked = !!c.urgent;
-  urgentLabel.appendChild(urgentCheck);
-  urgentLabel.appendChild(document.createTextNode('Highlight as urgent (amber tile, like Crit care)'));
-
   const foot = document.createElement('div');
   foot.className = 'entry-foot';
   const saveBtn = document.createElement('button');
@@ -670,7 +658,6 @@ function enterCategoryEditMode(row, id){
     c.emoji = emojiInput.value.trim() || '📌';
     c.title = titleInput.value.trim() || c.title;
     c.hint = hintInput.value.trim();
-    c.urgent = urgentCheck.checked;
     saveData();
     renderCategoryManager();
     renderHome();
@@ -685,7 +672,6 @@ function enterCategoryEditMode(row, id){
   row.appendChild(emojiInput);
   row.appendChild(titleInput);
   row.appendChild(hintInput);
-  row.appendChild(urgentLabel);
   row.appendChild(foot);
   titleInput.focus();
 }
@@ -725,7 +711,7 @@ function renderHome(){
     const c = DATA.categories[id];
     if(!c) return;
     const btn = document.createElement('button');
-    btn.className = 'tile' + (c.urgent ? ' urgent' : '');
+    btn.className = 'tile';
     btn.onclick = ()=> openCategory(id);
     const count = c.entries.length;
     btn.innerHTML = `<span class="em">${c.emoji}</span><div><div class="tt">${escapeHtml(c.title)}</div><div class="ct">${count ? count + (count===1?' entry':' entries') : c.hint}</div></div>`;
