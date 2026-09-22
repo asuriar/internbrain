@@ -237,6 +237,8 @@
   /* ---------- data manager ---------- */
   .data-panel { background:var(--bg-tile); border:1px solid var(--border-soft); border-radius:var(--radius); padding:16px; margin-bottom:14px; }
   .data-panel p { font-size:12.5px; color:var(--text-dim); line-height:1.6; margin:0 0 12px; }
+  .storage-bar-track { height:9px; border-radius:6px; background:var(--border-soft); overflow:hidden; margin-bottom:8px; }
+  .storage-bar-fill { height:100%; background:var(--accent); width:0%; transition:width 0.3s ease; border-radius:6px; }
   .data-row { display:flex; gap:8px; }
   .data-row .mini-btn { flex:1; text-align:center; padding:10px; }
   textarea#importArea { width:100%; margin-top:10px; min-height:70px; background:var(--bg-raised); border:1px solid var(--border); border-radius:8px; color:var(--text); font-family:'JetBrains Mono',monospace; font-size:11px; padding:8px; display:none; }
@@ -287,9 +289,14 @@
   <!-- CATEGORY VIEW -->
   <div class="view" id="view-category">
     <div class="cat-header">
-      <button class="back-btn" onclick="showView('view-home')">←</button>
+      <button class="back-btn" id="catBackBtn" onclick="catBack()">←</button>
       <div class="cat-title"><span class="em" id="catEmoji"></span><h2 id="catTitle"></h2></div>
     </div>
+    <div id="groupActions" class="entry-foot" style="display:none; margin:-10px 0 18px;"></div>
+    <div class="section-label" id="groupsLabel" style="display:none;">Sections</div>
+    <div class="grid" id="groupGrid" style="display:none; margin-bottom:14px;"></div>
+    <button class="add-entry-btn" id="addGroupBtn" style="display:none; margin-bottom:18px;">+ Add section</button>
+    <div class="section-label" id="entriesLabel" style="display:none;">Notes</div>
     <div id="catEntries"></div>
     <button class="add-entry-btn" id="addEntryBtn">+ Add entry</button>
   </div>
@@ -326,6 +333,12 @@
     <div class="cat-header">
       <button class="back-btn" onclick="showView('view-home')">←</button>
       <div class="cat-title"><span class="em">⚙️</span><h2>Settings & data</h2></div>
+    </div>
+
+    <div class="data-panel">
+      <p><b>Storage used</b></p>
+      <div class="storage-bar-track"><div class="storage-bar-fill" id="storageBarFill"></div></div>
+      <p class="md-hint" id="storageUsageText"></p>
     </div>
 
     <div class="data-panel">
@@ -375,9 +388,14 @@ const DEFAULT_CATEGORIES = [
   { id:'ecg', emoji:'📈', title:'ECG', hint:'Sgarbossa, axis, reading approach', urgent:false, seed:[
     'Sgarbossa criteria', 'Axis determination', 'General approach to reading an ECG'
   ]},
-  { id:'conditions', emoji:'🫀', title:'Conditions', hint:'By system — cardio, resp…', urgent:false, seed:[
-    'Cardio — ACS', 'Cardio — CCF', 'Resp — RCH asthma management', 'Resp — add more topics here'
-  ]},
+  { id:'conditions', emoji:'🫀', title:'Conditions', hint:'By system — cardio, resp…', urgent:false,
+    groups:[ { id:'cardio', emoji:'❤️', title:'Cardio' }, { id:'resp', emoji:'🫁', title:'Resp' } ],
+    seed:[
+      { title:'ACS', groupId:'cardio' },
+      { title:'CCF', groupId:'cardio' },
+      { title:'RCH asthma management', groupId:'resp' },
+    ]
+  },
   { id:'electrolytes', emoji:'⚡', title:'Electrolytes', hint:'K, Mg, Na, Ca, PO4 replacement', urgent:false, seed:[
     'Queensland Health electrolyte guideline'
   ]},
@@ -405,14 +423,17 @@ const DEFAULT_CATEGORIES = [
 ];
 
 function skeletonEntries(seed){
-  return (seed || []).map(title => ({ id: uid(), title, body:'', fav:false }));
+  return (seed || []).map(item=>{
+    if(typeof item === 'string') return { id: uid(), title:item, body:'', fav:false, groupId:null };
+    return { id: uid(), title:item.title, body:'', fav:false, groupId:item.groupId || null };
+  });
 }
 
 function seedData(){
   const cats = {};
   DEFAULT_CATEGORIES.forEach(c=>{
-    const { seed, ...meta } = c;
-    cats[c.id] = { ...meta, entries: skeletonEntries(seed) };
+    const { seed, groups, ...meta } = c;
+    cats[c.id] = { ...meta, groups: (groups||[]).map(g=>({...g})), entries: skeletonEntries(seed) };
   });
   return { categories: cats, order: DEFAULT_CATEGORIES.map(c=>c.id) };
 }
@@ -437,7 +458,7 @@ function migrateData(data){
   if(data.categories.etg){
     if(!data.categories.links){
       const meta = DEFAULT_CATEGORIES.find(c=>c.id==='links');
-      data.categories.links = { id:'links', emoji:meta.emoji, title:meta.title, hint:meta.hint, urgent:false, entries: skeletonEntries(meta.seed) };
+      data.categories.links = { id:'links', emoji:meta.emoji, title:meta.title, hint:meta.hint, urgent:false, groups:[], entries: skeletonEntries(meta.seed) };
       data.order.push('links');
     }
     data.categories.links.entries = data.categories.links.entries.concat(data.categories.etg.entries || []);
@@ -447,11 +468,23 @@ function migrateData(data){
   // add any brand-new categories that don't exist yet, with their skeleton entries
   DEFAULT_CATEGORIES.forEach(c=>{
     if(!data.categories[c.id]){
-      const { seed, ...meta } = c;
-      data.categories[c.id] = { ...meta, entries: skeletonEntries(seed) };
+      const { seed, groups, ...meta } = c;
+      data.categories[c.id] = { ...meta, groups:(groups||[]).map(g=>({...g})), entries: skeletonEntries(seed) };
     }
     if(!data.order.includes(c.id)) data.order.push(c.id);
   });
+  // every category needs a groups array and every entry a groupId, even ones
+  // created before this feature existed (custom categories, older backups)
+  Object.values(data.categories).forEach(c=>{
+    if(!Array.isArray(c.groups)) c.groups = [];
+    (c.entries||[]).forEach(e=>{ if(e.groupId === undefined) e.groupId = null; });
+  });
+  // Conditions specifically gets Cardio/Resp sections if it doesn't have any yet
+  // (covers users who already created the category before this update)
+  if(data.categories.conditions && data.categories.conditions.groups.length === 0){
+    const defConditions = DEFAULT_CATEGORIES.find(c=>c.id==='conditions');
+    data.categories.conditions.groups = defConditions.groups.map(g=>({...g}));
+  }
   return data;
 }
 
@@ -501,7 +534,26 @@ function showView(id){
   window.scrollTo(0,0);
 }
 function goCalc(){ renderCalculators(); showView('view-calc'); }
-function goData(){ renderCategoryManager(); showView('view-data'); }
+function goData(){ renderCategoryManager(); renderStorageUsage(); showView('view-data'); }
+
+function formatBytes(n){
+  if(n < 1024) return n + ' B';
+  if(n < 1024*1024) return (n/1024).toFixed(0) + ' KB';
+  return (n/1024/1024).toFixed(2) + ' MB';
+}
+
+function renderStorageUsage(){
+  let bytes = 0;
+  try { bytes = new Blob([JSON.stringify(DATA)]).size; } catch(e){ bytes = JSON.stringify(DATA).length; }
+  const budget = 5 * 1024 * 1024; // conservative estimate — iOS Safari is the tightest common browser at ~5MB
+  const pct = Math.min(100, (bytes / budget) * 100);
+  const fill = document.getElementById('storageBarFill');
+  fill.style.width = pct.toFixed(1) + '%';
+  fill.style.background = pct > 85 ? 'var(--danger)' : pct > 60 ? 'var(--warn)' : 'var(--accent)';
+  const remaining = Math.max(0, budget - bytes);
+  document.getElementById('storageUsageText').textContent =
+    `${formatBytes(bytes)} used, roughly ${formatBytes(remaining)} left, against a conservative ~5MB budget (iOS Safari's typical limit — other browsers often allow more). Mostly driven by images; text entries barely register. Export a backup before you get close to full.`;
+}
 
 /* ============ CATEGORY MANAGER ============ */
 const CATEGORY_EMOJI_SUGGESTIONS = ['🚨','📈','🫀','⚡','💊','🩸','🔧','📝','🩻','🔗','🏥','📞','🧪','🫁','🦴','🧠','👶','🌡️','📋','🛌'];
@@ -657,7 +709,7 @@ document.getElementById('addCategoryBtn').onclick = ()=>{
   if(!title || !title.trim()) return;
   const emoji = prompt('Pick an emoji for it (e.g. 👶, ☠️, 🦠):', CATEGORY_EMOJI_SUGGESTIONS[Math.floor(Math.random()*CATEGORY_EMOJI_SUGGESTIONS.length)]) || '📌';
   const id = 'cat_' + uid();
-  DATA.categories[id] = { id, emoji: emoji.trim() || '📌', title: title.trim(), hint:'', urgent:false, entries:[] };
+  DATA.categories[id] = { id, emoji: emoji.trim() || '📌', title: title.trim(), hint:'', urgent:false, groups:[], entries:[] };
   DATA.order.push(id);
   saveData();
   renderCategoryManager();
@@ -691,24 +743,144 @@ function countFavourites(){
 
 /* ============ CATEGORY VIEW ============ */
 let currentCat = null;
+let currentGroup = null;
+
 function openCategory(id){
   currentCat = id;
-  const c = DATA.categories[id];
-  document.getElementById('catEmoji').textContent = c.emoji;
-  document.getElementById('catTitle').textContent = c.title;
-  renderCategoryEntries();
+  currentGroup = null;
+  renderCategoryView();
   showView('view-category');
 }
 
-function renderCategoryEntries(){
-  const c = DATA.categories[currentCat];
-  const wrap = document.getElementById('catEntries');
-  wrap.innerHTML = '';
-  if(c.entries.length === 0){
-    wrap.innerHTML = `<div class="empty-cat">Nothing here yet.<br>Add your own notes, links, or copy across your verified GVH protocol for ${escapeHtml(c.title.toLowerCase())}.</div>`;
+function catBack(){
+  if(currentGroup){
+    currentGroup = null;
+    renderCategoryView();
+    window.scrollTo(0,0);
+  } else {
+    showView('view-home');
   }
-  c.entries.forEach(entry=> wrap.appendChild(renderEntry(currentCat, entry)));
 }
+
+function renderCategoryView(){
+  const c = DATA.categories[currentCat];
+  const groupsGrid = document.getElementById('groupGrid');
+  const groupsLabel = document.getElementById('groupsLabel');
+  const addGroupBtn = document.getElementById('addGroupBtn');
+  const entriesLabel = document.getElementById('entriesLabel');
+  const groupActions = document.getElementById('groupActions');
+  const catEntriesWrap = document.getElementById('catEntries');
+
+  if(currentGroup){
+    const g = c.groups.find(x=>x.id === currentGroup);
+    if(!g){ currentGroup = null; return renderCategoryView(); }
+
+    document.getElementById('catEmoji').textContent = g.emoji;
+    document.getElementById('catTitle').textContent = g.title;
+
+    groupsGrid.style.display = 'none';
+    groupsLabel.style.display = 'none';
+    addGroupBtn.style.display = 'none';
+    entriesLabel.style.display = 'none';
+
+    groupActions.style.display = 'flex';
+    groupActions.innerHTML = '';
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'mini-btn';
+    renameBtn.textContent = 'Rename section';
+    renameBtn.onclick = ()=> renameGroup(currentCat, currentGroup);
+    const delBtn = document.createElement('button');
+    delBtn.className = 'mini-btn danger';
+    delBtn.textContent = 'Delete section';
+    delBtn.onclick = ()=> deleteGroup(currentCat, currentGroup);
+    groupActions.appendChild(renameBtn);
+    groupActions.appendChild(delBtn);
+
+    const filtered = c.entries.filter(e=> e.groupId === currentGroup);
+    catEntriesWrap.innerHTML = '';
+    if(filtered.length === 0){
+      catEntriesWrap.innerHTML = `<div class="empty-cat">Nothing in ${escapeHtml(g.title)} yet. Add your first entry below.</div>`;
+    } else {
+      filtered.forEach(entry=> catEntriesWrap.appendChild(renderEntry(currentCat, entry)));
+    }
+  } else {
+    document.getElementById('catEmoji').textContent = c.emoji;
+    document.getElementById('catTitle').textContent = c.title;
+    groupActions.style.display = 'none';
+
+    if(c.groups.length > 0){
+      groupsGrid.style.display = 'grid';
+      groupsLabel.style.display = 'block';
+      addGroupBtn.style.display = 'block';
+      entriesLabel.style.display = 'block';
+      groupsGrid.innerHTML = '';
+      c.groups.forEach(g=>{
+        const count = c.entries.filter(e=> e.groupId === g.id).length;
+        const btn = document.createElement('button');
+        btn.className = 'tile';
+        btn.onclick = ()=>{ currentGroup = g.id; renderCategoryView(); window.scrollTo(0,0); };
+        btn.innerHTML = `<span class="em">${g.emoji}</span><div><div class="tt">${escapeHtml(g.title)}</div><div class="ct">${count ? count + (count===1?' entry':' entries') : 'Empty'}</div></div>`;
+        groupsGrid.appendChild(btn);
+      });
+    } else {
+      groupsGrid.style.display = 'none';
+      groupsLabel.style.display = 'none';
+      addGroupBtn.style.display = 'block';
+      entriesLabel.style.display = 'none';
+      groupsGrid.innerHTML = '';
+    }
+
+    const ungrouped = c.entries.filter(e=> !e.groupId);
+    catEntriesWrap.innerHTML = '';
+    if(ungrouped.length === 0 && c.groups.length === 0){
+      catEntriesWrap.innerHTML = `<div class="empty-cat">Nothing here yet.<br>Add entries directly below, or tap "+ Add section" above to group them like Cardio / Resp.</div>`;
+    } else {
+      ungrouped.forEach(entry=> catEntriesWrap.appendChild(renderEntry(currentCat, entry)));
+    }
+  }
+}
+
+function addGroupInCategory(){
+  const c = DATA.categories[currentCat];
+  const title = prompt('New section name (e.g. "Cardio", "Resp"):');
+  if(!title || !title.trim()) return;
+  const emoji = prompt('Pick an emoji for it:', CATEGORY_EMOJI_SUGGESTIONS[Math.floor(Math.random()*CATEGORY_EMOJI_SUGGESTIONS.length)]) || '📌';
+  const groupId = 'grp_' + uid();
+  c.groups.push({ id: groupId, emoji: emoji.trim() || '📌', title: title.trim() });
+  saveData();
+  renderCategoryView();
+}
+
+function renameGroup(catId, groupId){
+  const c = DATA.categories[catId];
+  const g = c.groups.find(x=> x.id === groupId);
+  if(!g) return;
+  const title = prompt('Rename section:', g.title);
+  if(title === null) return;
+  const emoji = prompt('Emoji for this section:', g.emoji);
+  if(emoji === null) return;
+  g.title = title.trim() || g.title;
+  g.emoji = emoji.trim() || g.emoji;
+  saveData();
+  renderCategoryView();
+}
+
+function deleteGroup(catId, groupId){
+  const c = DATA.categories[catId];
+  const g = c.groups.find(x=> x.id === groupId);
+  if(!g) return;
+  const count = c.entries.filter(e=> e.groupId === groupId).length;
+  const msg = count > 0
+    ? `Delete section "${g.title}"? Its ${count} ${count===1?'entry':'entries'} will move to unsectioned notes, not be deleted.`
+    : `Delete section "${g.title}"?`;
+  if(!confirm(msg)) return;
+  c.entries.forEach(e=>{ if(e.groupId === groupId) e.groupId = null; });
+  c.groups = c.groups.filter(x=> x.id !== groupId);
+  saveData();
+  currentGroup = null;
+  renderCategoryView();
+}
+document.getElementById('addGroupBtn').onclick = addGroupInCategory;
 
 function renderEntry(catId, entry, opts){
   opts = opts || {};
@@ -975,16 +1147,16 @@ function inlineMd(text){
 
 document.getElementById('addEntryBtn').onclick = ()=>{
   const c = DATA.categories[currentCat];
-  const entry = { id: uid(), title:'', body:'', fav:false };
+  const entry = { id: uid(), title:'', body:'', fav:false, groupId: currentGroup || null };
   c.entries.unshift(entry);
-  renderCategoryEntries();
+  renderCategoryView();
   const div = document.querySelector(`#catEntries .entry[data-id="${entry.id}"]`);
   if(div) enterEditMode(div, currentCat, entry);
 };
 
 function refreshCurrentView(){
   const active = document.querySelector('.view.active').id;
-  if(active === 'view-category') renderCategoryEntries();
+  if(active === 'view-category') renderCategoryView();
   else if(active === 'view-favs') renderFavourites();
   else if(active === 'view-search') runSearch(document.getElementById('searchInput').value);
   renderHome();
